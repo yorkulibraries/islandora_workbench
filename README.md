@@ -85,6 +85,7 @@ The settings defined in a configuration file are:
 | paged_content_page_model_tid |  | | Required if `paged_content_from_directories` is true. The the term ID from the Islandora Models taxonomy to assign to pages. See the section "Creating paged content" below for more information. |
 | paged_content_page_display_hints |  | | The term ID from the Islandora Display taxonomy to assign to pages. If not included, defaults to the value of the `field_display_hints` in the parent's record in the CSV file. See the section "Creating paged content" below for more information. |
 | paged_content_page_content_type |  | | Set to the machine name of the Drupal node content type for pages created using the "Without page-level metadata" method if it is different than the content type of the parent (which is specified in the content_type setting). See the section "Creating paged content" below for more information. |
+| update_mode | | replace | One of 'replace' or 'append'. In update tasks, determines whether CSV field values replace existing values in Drupal fields or append to them. |
 
 ## Checking configuration and input data
 

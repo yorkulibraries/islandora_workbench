@@ -53,6 +53,10 @@ def set_config_defaults(args):
     if 'allow_adding_terms' not in config:
         config['allow_adding_terms'] = False
 
+    if config['task'] == 'update':
+        if 'update_mode' not in config:
+            config['update_mode'] = 'replace'
+
     if config['task'] == 'create':
         if 'id_field' not in config:
             config['id_field'] = 'id'
@@ -350,7 +354,7 @@ def check_input(config, args):
                             'output_csv', 'delete_media_with_nodes', 'paged_content_from_directories',
                             'paged_content_sequence_seprator', 'paged_content_page_model_tid',
                             'paged_content_page_display_hints', 'paged_content_page_content_type',
-                            'allow_adding_terms']
+                            'allow_adding_terms', 'update_mode']
 
     for optional_config_key in optional_config_keys:
         if optional_config_key in config_keys:
@@ -452,6 +456,14 @@ def check_input(config, args):
             message = 'For "create" tasks, your CSV file must contain a "title" column.'
             logging.error(message)
             sys.exit('Error: ' + message)
+        # Validate length of 'title'.
+        if config['validate_title_length']:
+            validate_title_csv_data = get_csv_data(config['input_dir'], config['input_csv'], config['delimiter'])
+            for count, row in enumerate(validate_title_csv_data, start=1):
+                if len(row['title']) > 255:
+                    message = "The 'title' column in row " + str(count) + " of your CSV file exceeds Drupal's maximum length of 255 characters."
+                    logging.error(message)
+                    sys.exit('Error: ' + message)
 
         if 'output_csv' in config.keys():
             if os.path.exists(config['output_csv']):
@@ -528,6 +540,14 @@ def check_input(config, args):
             message = 'Error: CSV column header "file" is not allowed in update tasks.'
             logging.error(message)
             sys.exit(message)
+        # Validate length of 'title'.
+        if 'title' in csv_column_headers and config['validate_title_length']:
+            validate_title_csv_data = get_csv_data(config['input_dir'], config['input_csv'], config['delimiter'])
+            for count, row in enumerate(validate_title_csv_data, start=1):
+                if len(row['title']) > 255:
+                    message = "The 'title' column in row " + str(count) + " of your CSV file exceeds Drupal's maximum length of 255 characters."
+                    logging.error(message)
+                    sys.exit('Error: ' + message)            
         if 'node_id' in csv_column_headers:
             csv_column_headers.remove('node_id')
         for csv_column_header in csv_column_headers:
@@ -556,15 +576,6 @@ def check_input(config, args):
         else:
             validate_taxonomy_field_csv_data = get_csv_data(config['input_dir'], config['input_csv'], config['delimiter'])
             validate_taxonomy_field_values(config, field_definitions, validate_taxonomy_field_csv_data)
-
-        # Validate length of 'title'.
-        if config['validate_title_length']:
-            validate_title_csv_data = get_csv_data(config['input_dir'], config['input_csv'], config['delimiter'])
-            for count, row in enumerate(validate_title_csv_data, start=1):
-                if len(row['title']) > 255:
-                    message = "The 'title' column in row " + str(count) + " of your CSV file exceeds Drupal's maximum length of 255 characters."
-                    logging.error(message)
-                    sys.exit('Error: ' + message)
 
         # Validate existence of nodes specified in 'field_member_of'. This could be generalized out to validate node IDs in other fields.
         # See https://github.com/mjordan/islandora_workbench/issues/90.
@@ -825,8 +836,10 @@ def create_media(config, filename, node_uri):
         # A 201 response provides a 'location' header, but a '204' response does not.
         media_uri = media_response.headers['location']
         logging.info("Media (%s) created at %s, linked to node %s.", media_type, media_uri, node_uri)
-    else:
+    elif media_response.status_code == 204 and 'location' not in media_response.headers:
         logging.warning("Media created and linked to node %s, but its URI is not available since its creation returned an HTTP status code of %s", node_uri, media_response.status_code)
+    else:
+        logging.error("Media not created for node %s, its creation returned an HTTP status code of %s", node_uri, media_response.status_code)
 
     binary_data.close()
 
