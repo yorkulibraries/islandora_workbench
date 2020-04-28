@@ -214,7 +214,8 @@ def create():
                             node[custom_field] = field_value[0]
                             log_field_cardinality_violation(custom_field, id_field, '1')
 
-                    # For non-entity reference and non-typed relation fields (text, integer, boolean etc.).
+                    # For non-entity reference and non-typed relation fields (text, integer, boolean etc.)
+                    # that use a simple 'value:' structure.
                     else:
                         # Cardinality is unlimited.
                         if field_definitions[custom_field]['cardinality'] == -1:
@@ -414,7 +415,7 @@ def update():
                                          'target_type': 'taxonomy_term'}]
                                 else:
                                     node[custom_field] = [{'target_id': row[custom_field], 'target_type': 'taxonomy_term'}]
-                    
+
                     # Typed relation fields.
                     elif field_definitions[custom_field]['field_type'] == 'typed_relation':
                         # Create a copy of the existing values in the current field so we can compare
@@ -445,8 +446,13 @@ def update():
                                 node[custom_field] = node_field_values[custom_field] + [value]
                         # Cardinality has a limit.
                         elif field_definitions[custom_field]['cardinality'] > 1:
-                            existing_target_ids = get_target_ids(node_field_values[custom_field])
-                            num_existing_values = len(existing_target_ids)
+                            if config['update_mode'] == 'append':
+                                # Append to existing values.
+                                existing_target_ids = get_target_ids(node_field_values[custom_field])
+                                num_existing_values = len(existing_target_ids)
+                            else:
+                                existing_target_ids = []
+                                num_existing_values = 0
 
                             if config['subdelimiter'] in row[custom_field]:
                                 field_values = []
@@ -462,8 +468,11 @@ def update():
                                     logging.warning("Adding all values in CSV field %s for node %s would exceed maximum number of " +
                                                     "allowed values (%s), so only adding %s values.", custom_field, row['node_id'], field_definitions[custom_field]['cardinality'], num_values_to_add)
                                     logging.info("Updating node %s with %s values from CSV record.", row['node_id'], num_values_to_add)
-                                    field_values = field_values[:num_values_to_add]
-                                    node[custom_field] = node_field_values[custom_field] + field_values
+                                    if config['update_mode'] == 'append':
+                                        field_values = field_values[:num_values_to_add]
+                                        node[custom_field] = node_field_values[custom_field] + field_values
+                                    else:
+                                        node[custom_field] = field_values
                                 else:
                                     logging.info("Not updating field %s node for %s, provided values do not contain any new values for this field.", custom_field, row['node_id'])
                             else:
@@ -473,6 +482,7 @@ def update():
                                 else:
                                     logging.warning("Not updating field %s node for %s, adding provided value would exceed maxiumum number of allowed values (%s).",
                                                     custom_field, row['node_id'], field_definitions[custom_field]['cardinality'])
+
                         # Cardinality is 1. Do not append to existing values, replace existing value.
                         else:
                             field_values = split_typed_relation_string(config, row[custom_field], target_type)
@@ -491,10 +501,18 @@ def update():
                                 subvalues = split_geolocation_string(config, row[custom_field])
                                 for subvalue in subvalues:
                                     field_values.append(subvalue)
-                                node[custom_field] = field_values
+                                if config['update_mode'] == 'append':
+                                    # Append to existing values.
+                                    node[custom_field] = node_field_values[custom_field] + field_values
+                                else:
+                                    node[custom_field] = field_values
                             else:
                                 field_value = split_geolocation_string(config, row[custom_field])
-                                node[custom_field] = field_value
+                                if config['update_mode'] == 'append':
+                                    # Append to existing values.
+                                    node[custom_field] = node_field_values[custom_field] + field_value
+                                else:
+                                    node[custom_field] = field_value
                         # Cardinality has a limit.
                         elif field_definitions[custom_field]['cardinality'] > 1:
                             if config['subdelimiter'] in row[custom_field]:
@@ -516,7 +534,8 @@ def update():
                             if len(field_values) > 1:
                                 log_field_cardinality_violation(custom_field, row['node_id'], field_definitions[custom_field]['cardinality'])
 
-                    # For non-entity reference and non-typed relation fields (text, etc.).
+                    # For non-entity reference and non-typed relation fields (text, etc.)
+                    # that use a simple 'value:' structure.
                     else:
                         if field_definitions[custom_field]['cardinality'] == 1:
                             subvalues = row[custom_field].split(config['subdelimiter'])
@@ -533,9 +552,15 @@ def update():
                                 subvalues = subvalues[:field_definitions[custom_field]['cardinality']]
                                 for subvalue in subvalues:
                                     field_values.append({'value': subvalue})
+                                if config['update_mode'] == 'append':
                                     node[custom_field] = node_field_values[custom_field] + field_values
+                                else:
+                                    node[custom_field] = field_values
                             else:
-                                node[custom_field] = node_field_values[custom_field] + [{'value': row[custom_field]}]
+                                if config['update_mode'] == 'append':
+                                    node[custom_field] = node_field_values[custom_field] + [{'value': row[custom_field]}]
+                                else:
+                                    node[custom_field] = [{'value': row[custom_field]}]
                         # Cardinatlity is unlimited.
                         else:
                             # Append to existing values.
@@ -544,9 +569,15 @@ def update():
                                 subvalues = row[custom_field].split(config['subdelimiter'])
                                 for subvalue in subvalues:
                                     field_values.append({'value': subvalue})
+                                if config['update_mode'] == 'append':
                                     node[custom_field] = node_field_values[custom_field] + field_values
+                                else:
+                                    node[custom_field] = field_values
                             else:
-                                node[custom_field] = node_field_values[custom_field] + [{'value': row[custom_field]}]
+                                if config['update_mode'] == 'append':
+                                    node[custom_field] = node_field_values[custom_field] + [{'value': row[custom_field]}]
+                                else:
+                                    node[custom_field] = [{'value': row[custom_field]}]
 
                 node_endpoint = config['host'] + '/node/' + row['node_id'] + '?_format=json'
                 node_headers = {'Content-Type': 'application/json'}
