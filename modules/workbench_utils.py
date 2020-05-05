@@ -63,7 +63,6 @@ def set_config_defaults(args):
     if config['task'] == 'create':
         if 'published' not in config:
             config['published'] = 1
-
     if config['task'] == 'create':
         if 'preprocessors' in config_data:
             config['preprocessors'] = {}
@@ -547,7 +546,7 @@ def check_input(config, args):
                 if len(row['title']) > 255:
                     message = "The 'title' column in row " + str(count) + " of your CSV file exceeds Drupal's maximum length of 255 characters."
                     logging.error(message)
-                    sys.exit('Error: ' + message)            
+                    sys.exit('Error: ' + message)
         if 'node_id' in csv_column_headers:
             csv_column_headers.remove('node_id')
         for csv_column_header in csv_column_headers:
@@ -948,51 +947,51 @@ def create_term(config, vocab_id, term_name):
         return False
 
     term = {
-           "vid": [
-              {
-                 "target_id": vocab_id,
-                 "target_type": "taxonomy_vocabulary"
-              }
-           ],
-           "status": [
-              {
-                 "value": True
-              }
-           ],
-           "name": [
-              {
-                 "value": term_name
-              }
-           ],
-           "description": [
-              {
-                 "value": "",
-                 "format": None
-              }
-           ],
-           "weight": [
-              {
-                 "value": 0
-              }
-           ],
-           "parent": [
-              {
-                 "target_id": None
-              }
-           ],
-           "default_langcode": [
-              {
-                 "value": True
-              }
-           ],
-           "path": [
-              {
-                 "alias": None,
-                 "pid": None,
-                 "langcode": "en"
-              }
-           ]
-        }
+        "vid": [
+            {
+                "target_id": vocab_id,
+                "target_type": "taxonomy_vocabulary"
+            }
+        ],
+        "status": [
+            {
+                "value": True
+            }
+        ],
+        "name": [
+            {
+                "value": term_name
+            }
+        ],
+        "description": [
+            {
+                "value": "",
+                "format": None
+            }
+        ],
+        "weight": [
+            {
+                "value": 0
+            }
+        ],
+        "parent": [
+            {
+                "target_id": None
+            }
+        ],
+        "default_langcode": [
+            {
+                "value": True
+            }
+        ],
+        "path": [
+            {
+                "alias": None,
+                "pid": None,
+                "langcode": "en"
+            }
+        ]
+    }
 
     term_endpoint = config['host'] + '/taxonomy/term?_format=json'
     headers = {
@@ -1042,11 +1041,11 @@ def prepare_term_id(config, vocab_ids, term):
                 return tid
 
 
-def get_field_vocabularies(config, field_definitions, field_name):
+def get_field_vocabularies(config, field_definition):
     """Gets IDs of vocabularies linked from the current field (could be more than one).
     """
-    if 'vocabularies' in field_definitions[field_name]:
-        vocabularies = field_definitions[field_name]['vocabularies']
+    if 'vocabularies' in field_definition:
+        vocabularies = field_definition['vocabularies']
         return vocabularies
     else:
         return False
@@ -1104,7 +1103,10 @@ def validate_csv_field_cardinality(config, field_definitions, csv_data):
         for field_name in field_cardinalities.keys():
             if field_name in row:
                 delimited_field_values = row[field_name].split(config['subdelimiter'])
-                message = 'CSV field "' + field_name + '" in record with ID ' + row[config['id_field']] + ' contains more values than the number '
+                if config['task'] == 'create':
+                    message = 'CSV field "' + field_name + '" in record with ID ' + row[config['id_field']] + ' contains more values than the number '
+                if config['task'] == 'update':
+                    message = 'CSV field "' + field_name + '" in record with ID ' + row['node_id'] + ' contains more values than the number '
                 if field_cardinalities[field_name] == 1 and len(delimited_field_values) > 1:
                     message_2 = 'allowed for that field (' + str(field_cardinalities[field_name]) + '). Workbench will add only the first value.'
                     print('Warning: ' + message + message_2)
@@ -1128,7 +1130,7 @@ def validate_taxonomy_field_values(config, field_definitions, csv_data):
         fields_with_vocabularies = dict()
         if column_name in field_definitions:
             if 'vocabularies' in field_definitions[column_name]:
-                vocabularies = get_field_vocabularies(config, field_definitions, column_name)
+                vocabularies = get_field_vocabularies(config, field_definitions[column_name])
                 all_tids_for_field = []
                 for vocabulary in vocabularies:
                     terms = get_term_pairs(config, vocabulary)
@@ -1149,7 +1151,7 @@ def validate_taxonomy_field_values(config, field_definitions, csv_data):
     new_term_names_in_csv = False
     for count, row in enumerate(csv_data, start=1):
         for column_name in fields_with_vocabularies:
-            this_fields_vocabularies = get_field_vocabularies(config, field_definitions, column_name)
+            this_fields_vocabularies = get_field_vocabularies(config, field_definitions[column_name])
             this_fields_vocabularies_string = ', '.join(this_fields_vocabularies)
             if len(row[column_name]):
                 # Allow for multiple values in one field.
