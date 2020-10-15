@@ -2,61 +2,58 @@
 
 # Usage: ./workbench --config config.yml
 
+import argparse
+import copy
+import csv
+import datetime
+import json
+import logging
 import os
 import sys
-import copy
-import json
-import csv
-import logging
-import datetime
-import argparse
+
 from workbench_utils import *
 
 
 def create():
-    """Create new nodes via POST, and add media if there are any.
-    """
+    """Create new nodes via POST, and add media if there are any."""
     logging.info('"Create" task started using config file %s', args.config)
-    input_csv = os.path.join(config['input_dir'], config['input_csv'])
+    input_csv = os.path.join(config["input_dir"], config["input_csv"])
     if os.path.exists(input_csv):
         # Store a dictionary of id_field values: node IDs so we can add child nodes.
         node_ids = dict()
 
         field_definitions = get_field_definitions(config)
         with open(input_csv) as csvfile:
-            csv_data = csv.DictReader(csvfile, delimiter=config['delimiter'])
+            csv_data = csv.DictReader(csvfile, delimiter=config["delimiter"])
             csv_column_headers = csv_data.fieldnames
 
-            node_endpoint = config['host'] + '/node?_format=json'
+            node_endpoint = config["host"] + "/node?_format=json"
 
             for row in csv_data:
                 row = clean_csv_values(row)
-                id_field = row[config['id_field']]
+                id_field = row[config["id_field"]]
 
                 # Add required fields.
                 node = {
-                    'type': [
-                        {'target_id': config['content_type'],
-                         'target_type': 'node_type'}
+                    "type": [
+                        {
+                            "target_id": config["content_type"],
+                            "target_type": "node_type",
+                        }
                     ],
-                    'title': [
-                        {'value': row['title']}
-                    ],
-                    'status': [
-                        {'value': config['published']}
-                    ]
+                    "title": [{"value": row["title"]}],
+                    "status": [{"value": config["published"]}],
                 }
 
                 # If a node with an ID that matches the current item's
                 # 'parent_id' value has just been created, make the item
                 # a child of the node.
-                if 'parent_id' in row.keys() and row['parent_id'] in node_ids:
-                    row['field_member_of'] = node_ids[row['parent_id']]
+                if "parent_id" in row.keys() and row["parent_id"] in node_ids:
+                    row["field_member_of"] = node_ids[row["parent_id"]]
 
                 # Add custom (non-required) CSV fields.
-                required_fields = ['file', config['id_field'], 'title']
-                custom_fields = list(
-                    set(csv_column_headers) - set(required_fields))
+                required_fields = ["file", config["id_field"], "title"]
+                custom_fields = list(set(csv_column_headers) - set(required_fields))
                 for custom_field in custom_fields:
                     if not isinstance(row[custom_field], str):
                         continue
@@ -66,11 +63,11 @@ def create():
 
                     # This field can exist in the CSV to create parent/child
                     # relationships and is not a Drupal field.
-                    if custom_field == 'parent_id':
+                    if custom_field == "parent_id":
                         continue
 
                     # 'langcode' is a core Drupal field, but is not considered a "base field".
-                    if custom_field == 'langcode':
+                    if custom_field == "langcode":
                         continue
 
                     # Execute field preprocessor scripts, if any are configured. Note that these scripts
@@ -79,257 +76,444 @@ def create():
                     # it back into a string before returning it. Note that preprocessor scripts work only
                     # on string data and not on binary data like images, etc. and only on custom fields
                     # (so not title).
-                    if 'preprocessors' in config and len(config['preprocessors']) > 0:
-                        for field, command in config['preprocessors'].items():
+                    if "preprocessors" in config and len(config["preprocessors"]) > 0:
+                        for field, command in config["preprocessors"].items():
                             if field in csv_column_headers:
-                                output, return_code = preprocess_field_data(config['subdelimiter'], row[field], command)
+                                output, return_code = preprocess_field_data(
+                                    config["subdelimiter"], row[field], command
+                                )
                                 if return_code == 0:
                                     preprocessor_input = copy.deepcopy(row[field])
                                     row[field] = output.decode().strip()
-                                    logging.info('Preprocess command %s executed, taking "%s" as input and returning "%s".', command, preprocessor_input, output.decode().strip())
+                                    logging.info(
+                                        'Preprocess command %s executed, taking "%s" as input and returning "%s".',
+                                        command,
+                                        preprocessor_input,
+                                        output.decode().strip(),
+                                    )
                                 else:
-                                    message = 'Preprocess command ' + command + ' failed with return code ' + str(return_code)
+                                    message = (
+                                        "Preprocess command "
+                                        + command
+                                        + " failed with return code "
+                                        + str(return_code)
+                                    )
                                     logging.error(message)
                                     sys.exit(message)
 
                     # Assemble Drupal field structures for entity reference fields from CSV data. For
                     # taxonomy terms, target_type is 'taxonomy_term'; for nodes, it's 'node_type'.
-                    if field_definitions[custom_field]['field_type'] == 'entity_reference':
-                        if field_definitions[custom_field]['target_type'] == 'taxonomy_term':
-                            target_type = 'taxonomy_term'
-                            field_vocabs = get_field_vocabularies(config, field_definitions, custom_field)
-                            if config['subdelimiter'] in row[custom_field]:
+                    if (
+                        field_definitions[custom_field]["field_type"]
+                        == "entity_reference"
+                    ):
+                        if (
+                            field_definitions[custom_field]["target_type"]
+                            == "taxonomy_term"
+                        ):
+                            target_type = "taxonomy_term"
+                            field_vocabs = get_field_vocabularies(
+                                config, field_definitions, custom_field
+                            )
+                            if config["subdelimiter"] in row[custom_field]:
                                 prepared_tids = []
-                                delimited_values = row[custom_field].split(config['subdelimiter'])
+                                delimited_values = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for delimited_value in delimited_values:
-                                    tid = prepare_term_id(config, field_vocabs, delimited_value)
+                                    tid = prepare_term_id(
+                                        config, field_vocabs, delimited_value
+                                    )
                                     tid = str(tid)
                                     prepared_tids.append(tid)
-                                row[custom_field] = config['subdelimiter'].join(prepared_tids)
+                                row[custom_field] = config["subdelimiter"].join(
+                                    prepared_tids
+                                )
                             else:
-                                row[custom_field] = prepare_term_id(config, field_vocabs, row[custom_field])
+                                row[custom_field] = prepare_term_id(
+                                    config, field_vocabs, row[custom_field]
+                                )
                                 row[custom_field] = str(row[custom_field])
 
-                        if field_definitions[custom_field]['target_type'] == 'node':
-                            target_type = 'node_type'
+                        if field_definitions[custom_field]["target_type"] == "node":
+                            target_type = "node_type"
 
                         # Cardinality is unlimited.
-                        if field_definitions[custom_field]['cardinality'] == -1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        if field_definitions[custom_field]["cardinality"] == -1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for subvalue in subvalues:
-                                    field_values.append({'target_id': subvalue, 'target_type': target_type})
+                                    field_values.append(
+                                        {
+                                            "target_id": subvalue,
+                                            "target_type": target_type,
+                                        }
+                                    )
                                 node[custom_field] = field_values
                             else:
                                 node[custom_field] = [
-                                    {'target_id': row[custom_field],
-                                     'target_type': target_type}]
+                                    {
+                                        "target_id": row[custom_field],
+                                        "target_type": target_type,
+                                    }
+                                ]
                         # Cardinality has a limit.
-                        elif field_definitions[custom_field]['cardinality'] > 1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        elif field_definitions[custom_field]["cardinality"] > 1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for subvalue in subvalues:
-                                    field_values.append({'target_id': subvalue, 'target_type': target_type})
-                                node[custom_field] = field_values[:field_definitions[custom_field]['cardinality']]
-                                log_field_cardinality_violation(custom_field, id_field, field_definitions[custom_field]['cardinality'])
+                                    field_values.append(
+                                        {
+                                            "target_id": subvalue,
+                                            "target_type": target_type,
+                                        }
+                                    )
+                                node[custom_field] = field_values[
+                                    : field_definitions[custom_field]["cardinality"]
+                                ]
+                                log_field_cardinality_violation(
+                                    custom_field,
+                                    id_field,
+                                    field_definitions[custom_field]["cardinality"],
+                                )
                             else:
                                 node[custom_field] = [
-                                    {'target_id': row[custom_field],
-                                     'target_type': target_type}]
+                                    {
+                                        "target_id": row[custom_field],
+                                        "target_type": target_type,
+                                    }
+                                ]
                         # Cardinality is 1.
                         else:
-                            subvalues = row[custom_field].split(config['subdelimiter'])
+                            subvalues = row[custom_field].split(config["subdelimiter"])
                             node[custom_field] = [
-                                {'target_id': subvalues[0],
-                                 'target_type': target_type}]
+                                {"target_id": subvalues[0], "target_type": target_type}
+                            ]
                             if len(subvalues) > 1:
-                                log_field_cardinality_violation(custom_field, id_field, '1')
+                                log_field_cardinality_violation(
+                                    custom_field, id_field, "1"
+                                )
 
                     # Typed relation fields.
-                    elif field_definitions[custom_field]['field_type'] == 'typed_relation':
-                        target_type = field_definitions[custom_field]['target_type']
+                    elif (
+                        field_definitions[custom_field]["field_type"]
+                        == "typed_relation"
+                    ):
+                        target_type = field_definitions[custom_field]["target_type"]
                         # Cardinality is unlimited.
-                        if field_definitions[custom_field]['cardinality'] == -1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        if field_definitions[custom_field]["cardinality"] == -1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_typed_relation_string(config, row[custom_field], target_type)
+                                subvalues = split_typed_relation_string(
+                                    config, row[custom_field], target_type
+                                )
                                 for subvalue in subvalues:
                                     field_values.append(subvalue)
                                 node[custom_field] = field_values
                             else:
-                                field_value = split_typed_relation_string(config, row[custom_field], target_type)
+                                field_value = split_typed_relation_string(
+                                    config, row[custom_field], target_type
+                                )
                                 node[custom_field] = field_value
                         # Cardinality has a limit.
-                        elif field_definitions[custom_field]['cardinality'] > 1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        elif field_definitions[custom_field]["cardinality"] > 1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_typed_relation_string(config, row[custom_field], target_type)
-                                subvalues = subvalues[:field_definitions[custom_field]['cardinality']]
-                                if len(subvalues) > field_definitions[custom_field]['cardinality']:
-                                    log_field_cardinality_violation(custom_field, id_field, field_definitions[custom_field]['cardinality'])
+                                subvalues = split_typed_relation_string(
+                                    config, row[custom_field], target_type
+                                )
+                                subvalues = subvalues[
+                                    : field_definitions[custom_field]["cardinality"]
+                                ]
+                                if (
+                                    len(subvalues)
+                                    > field_definitions[custom_field]["cardinality"]
+                                ):
+                                    log_field_cardinality_violation(
+                                        custom_field,
+                                        id_field,
+                                        field_definitions[custom_field]["cardinality"],
+                                    )
                                 for subvalue in subvalues:
-                                        field_values.append(subvalue)
+                                    field_values.append(subvalue)
                                 node[custom_field] = field_values
                             else:
-                                field_value = split_typed_relation_string(config, row[custom_field], target_type)
+                                field_value = split_typed_relation_string(
+                                    config, row[custom_field], target_type
+                                )
                                 node[custom_field] = field_value
                         # Cardinality is 1.
                         else:
-                            field_values = split_typed_relation_string(config, row[custom_field], target_type)
+                            field_values = split_typed_relation_string(
+                                config, row[custom_field], target_type
+                            )
                             node[custom_field] = field_value[0]
-                            log_field_cardinality_violation(custom_field, id_field, '1')
+                            log_field_cardinality_violation(custom_field, id_field, "1")
 
                     # Geolocation fields.
-                    elif field_definitions[custom_field]['field_type'] == 'geolocation':
-                        target_type = field_definitions[custom_field]['target_type']
+                    elif field_definitions[custom_field]["field_type"] == "geolocation":
+                        target_type = field_definitions[custom_field]["target_type"]
                         # Cardinality is unlimited.
-                        if field_definitions[custom_field]['cardinality'] == -1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        if field_definitions[custom_field]["cardinality"] == -1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_geolocation_string(config, row[custom_field])
+                                subvalues = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
                                 for subvalue in subvalues:
                                     field_values.append(subvalue)
                                 node[custom_field] = field_values
                             else:
-                                field_value = split_geolocation_string(config, row[custom_field])
+                                field_value = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
                                 node[custom_field] = field_value
                         # Cardinality has a limit.
-                        elif field_definitions[custom_field]['cardinality'] > 1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        elif field_definitions[custom_field]["cardinality"] > 1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_geolocation_string(config, row[custom_field])
-                                subvalues = subvalues[:field_definitions[custom_field]['cardinality']]
-                                log_field_cardinality_violation(custom_field, id_field, field_definitions[custom_field]['cardinality'])
+                                subvalues = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
+                                subvalues = subvalues[
+                                    : field_definitions[custom_field]["cardinality"]
+                                ]
+                                log_field_cardinality_violation(
+                                    custom_field,
+                                    id_field,
+                                    field_definitions[custom_field]["cardinality"],
+                                )
                                 for subvalue in subvalues:
-                                        field_values.append(subvalue)
+                                    field_values.append(subvalue)
                                 node[custom_field] = field_values
                             else:
-                                field_value = split_geolocation_string(config, row[custom_field])
+                                field_value = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
                                 node[custom_field] = field_value
                         # Cardinality is 1.
                         else:
-                            field_values = split_geolocation_string(config, row[custom_field])
+                            field_values = split_geolocation_string(
+                                config, row[custom_field]
+                            )
                             node[custom_field] = field_value[0]
-                            log_field_cardinality_violation(custom_field, id_field, '1')
+                            log_field_cardinality_violation(custom_field, id_field, "1")
 
                     # For non-entity reference and non-typed relation fields (text, integer, boolean etc.).
                     else:
                         # Cardinality is unlimited.
-                        if field_definitions[custom_field]['cardinality'] == -1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        if field_definitions[custom_field]["cardinality"] == -1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for subvalue in subvalues:
-                                    subvalue = truncate_csv_value(custom_field, id_field, field_definitions[custom_field], subvalue)
-                                    field_values.append({'value': subvalue})
+                                    subvalue = truncate_csv_value(
+                                        custom_field,
+                                        id_field,
+                                        field_definitions[custom_field],
+                                        subvalue,
+                                    )
+                                    field_values.append({"value": subvalue})
                                 node[custom_field] = field_values
                             else:
-                                row[custom_field] = truncate_csv_value(custom_field, id_field, field_definitions[custom_field], row[custom_field])
-                                node[custom_field] = [{'value': row[custom_field]}]
+                                row[custom_field] = truncate_csv_value(
+                                    custom_field,
+                                    id_field,
+                                    field_definitions[custom_field],
+                                    row[custom_field],
+                                )
+                                node[custom_field] = [{"value": row[custom_field]}]
                         # Cardinality has a limit.
-                        elif field_definitions[custom_field]['cardinality'] > 1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        elif field_definitions[custom_field]["cardinality"] > 1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
-                                subvalues = subvalues[:field_definitions[custom_field]['cardinality']]
-                                if len(subvalues) > field_definitions[custom_field]['cardinality']:
-                                    log_field_cardinality_violation(custom_field, id_field, field_definitions[custom_field]['cardinality'])
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
+                                subvalues = subvalues[
+                                    : field_definitions[custom_field]["cardinality"]
+                                ]
+                                if (
+                                    len(subvalues)
+                                    > field_definitions[custom_field]["cardinality"]
+                                ):
+                                    log_field_cardinality_violation(
+                                        custom_field,
+                                        id_field,
+                                        field_definitions[custom_field]["cardinality"],
+                                    )
                                 for subvalue in subvalues:
-                                    subvalue = truncate_csv_value(custom_field, id_field, field_definitions[custom_field], subvalue)
-                                    field_values.append({'value': subvalue})
+                                    subvalue = truncate_csv_value(
+                                        custom_field,
+                                        id_field,
+                                        field_definitions[custom_field],
+                                        subvalue,
+                                    )
+                                    field_values.append({"value": subvalue})
                                 node[custom_field] = field_values
                             else:
-                                row[custom_field] = truncate_csv_value(custom_field, id_field, field_definitions[custom_field], row[custom_field])
-                                node[custom_field] = [{'value': row[custom_field]}]
+                                row[custom_field] = truncate_csv_value(
+                                    custom_field,
+                                    id_field,
+                                    field_definitions[custom_field],
+                                    row[custom_field],
+                                )
+                                node[custom_field] = [{"value": row[custom_field]}]
                         # Cardinality is 1.
                         else:
-                            subvalues = row[custom_field].split(config['subdelimiter'])
+                            subvalues = row[custom_field].split(config["subdelimiter"])
                             first_subvalue = subvalues[0]
-                            first_subvalue = truncate_csv_value(custom_field, id_field, field_definitions[custom_field], first_subvalue)
-                            node[custom_field] = [{'value': first_subvalue}]
+                            first_subvalue = truncate_csv_value(
+                                custom_field,
+                                id_field,
+                                field_definitions[custom_field],
+                                first_subvalue,
+                            )
+                            node[custom_field] = [{"value": first_subvalue}]
                             if len(subvalues) > 1:
-                                log_field_cardinality_violation(custom_field, id_field, '1')
+                                log_field_cardinality_violation(
+                                    custom_field, id_field, "1"
+                                )
 
-                node_headers = {'Content-Type': 'application/json'}
-                node_endpoint = '/node?_format=json'
-                node_response = issue_request(config, 'POST', node_endpoint, node_headers, node, None)
+                node_headers = {"Content-Type": "application/json"}
+                node_endpoint = "/node?_format=json"
+                node_response = issue_request(
+                    config, "POST", node_endpoint, node_headers, node, None
+                )
                 if node_response.status_code == 201:
-                    node_uri = node_response.headers['location']
-                    print('Node for "' + row['title'] + '" (record ' + id_field + ') created at ' + node_uri + '.')
-                    logging.info("Node for %s (record %s) created at %s.", row['title'], id_field, node_uri)
-                    if 'output_csv' in config.keys():
+                    node_uri = node_response.headers["location"]
+                    print(
+                        'Node for "'
+                        + row["title"]
+                        + '" (record '
+                        + id_field
+                        + ") created at "
+                        + node_uri
+                        + "."
+                    )
+                    logging.info(
+                        "Node for %s (record %s) created at %s.",
+                        row["title"],
+                        id_field,
+                        node_uri,
+                    )
+                    if "output_csv" in config.keys():
                         write_to_output_csv(config, id_field, node_response.text)
                 else:
-                    logging.error("Node for CSV record %s not created, HTTP response code was %s.", id_field, node_response.status_code)
+                    logging.error(
+                        "Node for CSV record %s not created, HTTP response code was %s.",
+                        id_field,
+                        node_response.status_code,
+                    )
                     continue
 
                 # Map ID from CSV of newly created node to its node ID so we can use it for linking child nodes, etc.
                 if node_response.status_code == 201:
-                    node_nid = node_uri.rsplit('/', 1)[-1]
+                    node_nid = node_uri.rsplit("/", 1)[-1]
                     node_ids[id_field] = node_nid
 
                 # If there is no media file (and we're not creating paged content), move on to the next CSV row.
-                if 'file' in row and len(row['file']) == 0 and config['paged_content_from_directories'] is False:
-                    print('+No media for ' + node_uri + ' created since its "file" field in the CSV is empty.')
-                    logging.warning("No media for %s created since its 'file' field in the CSV is empty.", node_uri)
+                if (
+                    "file" in row
+                    and len(row["file"]) == 0
+                    and config["paged_content_from_directories"] is False
+                ):
+                    print(
+                        "+No media for "
+                        + node_uri
+                        + ' created since its "file" field in the CSV is empty.'
+                    )
+                    logging.warning(
+                        "No media for %s created since its 'file' field in the CSV is empty.",
+                        node_uri,
+                    )
                     continue
 
                 # If there is a media file, add it.
-                if 'file' in row:
-                    file_path = os.path.join(config['input_dir'], row['file'])
+                if "file" in row:
+                    file_path = os.path.join(config["input_dir"], row["file"])
                     media_type = set_media_type(file_path, config)
 
                 if node_response.status_code == 201:
                     # If what is identified in the 'file' field is a file, create the media from it.
-                    if 'file' in row and len(row['file']) != 0 and os.path.isfile(file_path):
-                        media_response_status_code = create_media(config, row['file'], node_uri)
+                    if (
+                        "file" in row
+                        and len(row["file"]) != 0
+                        and os.path.isfile(file_path)
+                    ):
+                        media_response_status_code = create_media(
+                            config, row["file"], node_uri
+                        )
                         allowed_media_response_codes = [201, 204]
                         if media_response_status_code in allowed_media_response_codes:
-                            print('+' + media_type.title() + " media for " + row['file'] + " created.")
-                            logging.info("%s media for %s created.", media_type.title(), row['file'])
+                            print(
+                                "+"
+                                + media_type.title()
+                                + " media for "
+                                + row["file"]
+                                + " created."
+                            )
+                            logging.info(
+                                "%s media for %s created.",
+                                media_type.title(),
+                                row["file"],
+                            )
 
-                    if 'file' in row and len(row['file']) == 0 and config['paged_content_from_directories'] is False:
-                        print('+ No file specified in CSV for ' + row['title'])
-                        logging.info("No file specified for %s, so no media created.", id_field)
+                    if (
+                        "file" in row
+                        and len(row["file"]) == 0
+                        and config["paged_content_from_directories"] is False
+                    ):
+                        print("+ No file specified in CSV for " + row["title"])
+                        logging.info(
+                            "No file specified for %s, so no media created.", id_field
+                        )
 
-                    if config['paged_content_from_directories'] is True:
+                    if config["paged_content_from_directories"] is True:
                         # Console output and logging are done in the create_children_from_directory function.
-                        create_children_from_directory(config, row, node_nid, row['title'])
+                        create_children_from_directory(
+                            config, row, node_nid, row["title"]
+                        )
 
 
 def update():
     """Update nodes via PATCH. Note that PATCHing replaces the target field,
-       so if we are adding an additional value to a multivalued field, we need
-       to include the existing value(s) in our PATCH.
+    so if we are adding an additional value to a multivalued field, we need
+    to include the existing value(s) in our PATCH.
     """
-    input_csv = os.path.join(config['input_dir'], config['input_csv'])
+    input_csv = os.path.join(config["input_dir"], config["input_csv"])
     if os.path.exists(input_csv):
         field_definitions = get_field_definitions(config)
         with open(input_csv) as csvfile:
-            csv_data = csv.DictReader(csvfile, delimiter=config['delimiter'])
+            csv_data = csv.DictReader(csvfile, delimiter=config["delimiter"])
             csv_column_headers = csv_data.fieldnames
 
             for row in csv_data:
                 row = clean_csv_values(row)
-                if not ping_node(config, row['node_id']):
-                    print("Node " + row['node_id'] + " not found or not accessible, skipping update.")
+                if not ping_node(config, row["node_id"]):
+                    print(
+                        "Node "
+                        + row["node_id"]
+                        + " not found or not accessible, skipping update."
+                    )
                     continue
 
                 # Add the target_id field.
-                node = {
-                    'type': [
-                        {'target_id': config['content_type']}
-                    ]
-                }
+                node = {"type": [{"target_id": config["content_type"]}]}
 
-                node_field_values = get_node_field_values(config, row['node_id'])
+                node_field_values = get_node_field_values(config, row["node_id"])
 
                 # Add custom (non-required) fields.
-                required_fields = ['node_id']
-                custom_fields = list(
-                    set(csv_column_headers) - set(required_fields))
+                required_fields = ["node_id"]
+                custom_fields = list(set(csv_column_headers) - set(required_fields))
                 for custom_field in custom_fields:
                     # Skip updating field if value is empty.
                     if len(row[custom_field]) == 0:
@@ -337,229 +521,439 @@ def update():
 
                     # Entity reference fields: for taxonomy terms, target_type is 'taxonomy_term';
                     # for nodes, it's 'node_type'.
-                    if field_definitions[custom_field]['field_type'] == 'entity_reference':
-                        if field_definitions[custom_field]['target_type'] == 'taxonomy_term':
-                            target_type = 'taxonomy_term'
-                            field_vocabs = get_field_vocabularies(config, field_definitions, custom_field)
-                            if config['subdelimiter'] in row[custom_field]:
+                    if (
+                        field_definitions[custom_field]["field_type"]
+                        == "entity_reference"
+                    ):
+                        if (
+                            field_definitions[custom_field]["target_type"]
+                            == "taxonomy_term"
+                        ):
+                            target_type = "taxonomy_term"
+                            field_vocabs = get_field_vocabularies(
+                                config, field_definitions, custom_field
+                            )
+                            if config["subdelimiter"] in row[custom_field]:
                                 prepared_tids = []
-                                delimited_values = row[custom_field].split(config['subdelimiter'])
+                                delimited_values = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for delimited_value in delimited_values:
-                                    tid = prepare_term_id(config, field_vocabs, delimited_value)
+                                    tid = prepare_term_id(
+                                        config, field_vocabs, delimited_value
+                                    )
                                     tid = str(tid)
                                     prepared_tids.append(tid)
-                                row[custom_field] = config['subdelimiter'].join(prepared_tids)
+                                row[custom_field] = config["subdelimiter"].join(
+                                    prepared_tids
+                                )
                             else:
-                                row[custom_field] = prepare_term_id(config, field_vocabs, row[custom_field])
+                                row[custom_field] = prepare_term_id(
+                                    config, field_vocabs, row[custom_field]
+                                )
                                 row[custom_field] = str(row[custom_field])
 
-                        if field_definitions[custom_field]['target_type'] == 'node':
-                            target_type = 'node_type'
+                        if field_definitions[custom_field]["target_type"] == "node":
+                            target_type = "node_type"
 
-                        if field_definitions[custom_field]['cardinality'] == 1:
-                            subvalues = row[custom_field].split(config['subdelimiter'])
+                        if field_definitions[custom_field]["cardinality"] == 1:
+                            subvalues = row[custom_field].split(config["subdelimiter"])
                             node[custom_field] = [
-                                {'target_id': subvalues[0], 'target_type': target_type}]
+                                {"target_id": subvalues[0], "target_type": target_type}
+                            ]
                             if len(subvalues) > 1:
-                                log_field_cardinality_violation(custom_field, row['node_id'], '1')
+                                log_field_cardinality_violation(
+                                    custom_field, row["node_id"], "1"
+                                )
                         # Cardinality has a limit.
-                        elif field_definitions[custom_field]['cardinality'] > 1:
+                        elif field_definitions[custom_field]["cardinality"] > 1:
                             # Append to existing values.
-                            existing_target_ids = get_target_ids(node_field_values[custom_field])
+                            existing_target_ids = get_target_ids(
+                                node_field_values[custom_field]
+                            )
                             num_existing_values = len(existing_target_ids)
-                            if config['subdelimiter'] in row[custom_field]:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for subvalue in subvalues:
                                     if subvalue in existing_target_ids:
                                         existing_target_ids.remove(subvalue)
                                 # Slice the incoming values to a length that matches the field's
                                 # cardinality minus its existing length. Also log fact that we're
                                 # slicing off values.
-                                num_values_to_add = field_definitions[custom_field]['cardinality'] - num_existing_values
+                                num_values_to_add = (
+                                    field_definitions[custom_field]["cardinality"]
+                                    - num_existing_values
+                                )
                                 subvalues = subvalues[:num_values_to_add]
                                 if len(subvalues) > 0:
-                                    logging.warning("Adding all values in CSV field %s for node %s would exceed maximum number of " +
-                                                    "allowed values (%s), so only adding %s values.", custom_field, row['node_id'], field_definitions[custom_field]['cardinality'], num_values_to_add)
-                                    logging.info("Updating node %s with %s values from CSV record.", row['node_id'], num_values_to_add)
+                                    logging.warning(
+                                        "Adding all values in CSV field %s for node %s would exceed maximum number of "
+                                        + "allowed values (%s), so only adding %s values.",
+                                        custom_field,
+                                        row["node_id"],
+                                        field_definitions[custom_field]["cardinality"],
+                                        num_values_to_add,
+                                    )
+                                    logging.info(
+                                        "Updating node %s with %s values from CSV record.",
+                                        row["node_id"],
+                                        num_values_to_add,
+                                    )
                                     for subvalue in subvalues:
-                                        field_values.append({'target_id': subvalue, 'target_type': target_type})
-                                    node[custom_field] = node_field_values[custom_field] + field_values
+                                        field_values.append(
+                                            {
+                                                "target_id": subvalue,
+                                                "target_type": target_type,
+                                            }
+                                        )
+                                    node[custom_field] = (
+                                        node_field_values[custom_field] + field_values
+                                    )
                                 else:
-                                    logging.info("Not updating field %s node for %s, provided values do not contain any new values for this field.", custom_field, row['node_id'])
+                                    logging.info(
+                                        "Not updating field %s node for %s, provided values do not contain any new values for this field.",
+                                        custom_field,
+                                        row["node_id"],
+                                    )
                             else:
-                                if num_existing_values + 1 <= field_definitions[custom_field]['cardinality']:
-                                    node[custom_field] = node_field_values[custom_field] + [
-                                        {'target_id': row[custom_field],
-                                         'target_type': 'taxonomy_term'}]
+                                if (
+                                    num_existing_values + 1
+                                    <= field_definitions[custom_field]["cardinality"]
+                                ):
+                                    node[custom_field] = node_field_values[
+                                        custom_field
+                                    ] + [
+                                        {
+                                            "target_id": row[custom_field],
+                                            "target_type": "taxonomy_term",
+                                        }
+                                    ]
                                 else:
-                                    logging.warning("Not updating field %s node for %s, adding provided value would exceed maxiumum number of allowed values.", custom_field, row['node_id'])
+                                    logging.warning(
+                                        "Not updating field %s node for %s, adding provided value would exceed maxiumum number of allowed values.",
+                                        custom_field,
+                                        row["node_id"],
+                                    )
                         # Cardinality is unlimited.
                         else:
                             # Append to existing values.
-                            if config['subdelimiter'] in row[custom_field]:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for subvalue in subvalues:
-                                    field_values.append({'target_id': subvalue, 'target_type': target_type})
-                                    node[custom_field] = node_field_values[custom_field] + field_values
+                                    field_values.append(
+                                        {
+                                            "target_id": subvalue,
+                                            "target_type": target_type,
+                                        }
+                                    )
+                                    node[custom_field] = (
+                                        node_field_values[custom_field] + field_values
+                                    )
                             else:
                                 node[custom_field] = node_field_values[custom_field] + [
-                                    {'target_id': row[custom_field],
-                                     'target_type': 'taxonomy_term'}]
+                                    {
+                                        "target_id": row[custom_field],
+                                        "target_type": "taxonomy_term",
+                                    }
+                                ]
 
                     # Typed relation fields.
-                    elif field_definitions[custom_field]['field_type'] == 'typed_relation':
+                    elif (
+                        field_definitions[custom_field]["field_type"]
+                        == "typed_relation"
+                    ):
                         # Create a copy of the existing values in the current field so we can compare
                         # them to the incoming values in the CSV file for deduping. To compare these
                         # values with the incoming ones, we need to remove the 'url' and
                         # 'target_uuid' members.
-                        node_comparison_values = copy.deepcopy(node_field_values[custom_field])
+                        node_comparison_values = copy.deepcopy(
+                            node_field_values[custom_field]
+                        )
                         for comparison_value in node_comparison_values:
-                            del comparison_value['url']
-                            del comparison_value['target_uuid']
+                            del comparison_value["url"]
+                            del comparison_value["target_uuid"]
 
-                        if field_definitions[custom_field]['target_type'] == 'taxonomy_term':
-                            target_type = 'taxonomy_term'
-                        if field_definitions[custom_field]['target_type'] == 'node':
-                            target_type = 'node_type'
+                        if (
+                            field_definitions[custom_field]["target_type"]
+                            == "taxonomy_term"
+                        ):
+                            target_type = "taxonomy_term"
+                        if field_definitions[custom_field]["target_type"] == "node":
+                            target_type = "node_type"
                         # Cardinality is unlimited.
-                        if field_definitions[custom_field]['cardinality'] == -1:
+                        if field_definitions[custom_field]["cardinality"] == -1:
                             # Append to existing values.
-                            if config['subdelimiter'] in row[custom_field]:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_typed_relation_string(config, row[custom_field], target_type)
+                                subvalues = split_typed_relation_string(
+                                    config, row[custom_field], target_type
+                                )
                                 for subvalue in subvalues:
                                     field_values.append(subvalue)
-                                node[custom_field] = node_field_values[custom_field] + field_values
+                                node[custom_field] = (
+                                    node_field_values[custom_field] + field_values
+                                )
                             # Append to existing values.
                             else:
-                                value = split_typed_relation_string(config, row[custom_field], target_type)
-                                node[custom_field] = node_field_values[custom_field] + [value]
+                                value = split_typed_relation_string(
+                                    config, row[custom_field], target_type
+                                )
+                                node[custom_field] = node_field_values[custom_field] + [
+                                    value
+                                ]
                         # Cardinality has a limit.
-                        elif field_definitions[custom_field]['cardinality'] > 1:
-                            existing_target_ids = get_target_ids(node_field_values[custom_field])
+                        elif field_definitions[custom_field]["cardinality"] > 1:
+                            existing_target_ids = get_target_ids(
+                                node_field_values[custom_field]
+                            )
                             num_existing_values = len(existing_target_ids)
 
-                            if config['subdelimiter'] in row[custom_field]:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_typed_relation_string(config, row[custom_field], target_type)
+                                subvalues = split_typed_relation_string(
+                                    config, row[custom_field], target_type
+                                )
                                 for subvalue in subvalues:
                                     if subvalue not in node_comparison_values:
                                         field_values.append(subvalue)
                                 # Slice the incoming values to a length that matches the field's
                                 # cardinality minus its existing length. Also log fact that we're
                                 # slicing off values.
-                                num_values_to_add = field_definitions[custom_field]['cardinality'] - num_existing_values
+                                num_values_to_add = (
+                                    field_definitions[custom_field]["cardinality"]
+                                    - num_existing_values
+                                )
                                 if num_values_to_add > 0:
-                                    logging.warning("Adding all values in CSV field %s for node %s would exceed maximum number of " +
-                                                    "allowed values (%s), so only adding %s values.", custom_field, row['node_id'], field_definitions[custom_field]['cardinality'], num_values_to_add)
-                                    logging.info("Updating node %s with %s values from CSV record.", row['node_id'], num_values_to_add)
+                                    logging.warning(
+                                        "Adding all values in CSV field %s for node %s would exceed maximum number of "
+                                        + "allowed values (%s), so only adding %s values.",
+                                        custom_field,
+                                        row["node_id"],
+                                        field_definitions[custom_field]["cardinality"],
+                                        num_values_to_add,
+                                    )
+                                    logging.info(
+                                        "Updating node %s with %s values from CSV record.",
+                                        row["node_id"],
+                                        num_values_to_add,
+                                    )
                                     field_values = field_values[:num_values_to_add]
-                                    node[custom_field] = node_field_values[custom_field] + field_values
+                                    node[custom_field] = (
+                                        node_field_values[custom_field] + field_values
+                                    )
                                 else:
-                                    logging.info("Not updating field %s node for %s, provided values do not contain any new values for this field.", custom_field, row['node_id'])
+                                    logging.info(
+                                        "Not updating field %s node for %s, provided values do not contain any new values for this field.",
+                                        custom_field,
+                                        row["node_id"],
+                                    )
                             else:
-                                if num_existing_values + 1 <= field_definitions[custom_field]['cardinality']:
-                                    field_value = split_typed_relation_string(config, row[custom_field], target_type)
-                                    node[custom_field] = node_field_values[custom_field] + field_value
+                                if (
+                                    num_existing_values + 1
+                                    <= field_definitions[custom_field]["cardinality"]
+                                ):
+                                    field_value = split_typed_relation_string(
+                                        config, row[custom_field], target_type
+                                    )
+                                    node[custom_field] = (
+                                        node_field_values[custom_field] + field_value
+                                    )
                                 else:
-                                    logging.warning("Not updating field %s node for %s, adding provided value would exceed maxiumum number of allowed values (%s).",
-                                                    custom_field, row['node_id'], field_definitions[custom_field]['cardinality'])
+                                    logging.warning(
+                                        "Not updating field %s node for %s, adding provided value would exceed maxiumum number of allowed values (%s).",
+                                        custom_field,
+                                        row["node_id"],
+                                        field_definitions[custom_field]["cardinality"],
+                                    )
                         # Cardinality is 1. Do not append to existing values, replace existing value.
                         else:
-                            field_values = split_typed_relation_string(config, row[custom_field], target_type)
+                            field_values = split_typed_relation_string(
+                                config, row[custom_field], target_type
+                            )
                             if len(field_values) > 1:
                                 node[custom_field] = [field_values[0]]
-                                log_field_cardinality_violation(custom_field, row['node_id'], '1')
-                                logging.info("Updating node %s with 1 values from CSV record.", row['node_id'])
+                                log_field_cardinality_violation(
+                                    custom_field, row["node_id"], "1"
+                                )
+                                logging.info(
+                                    "Updating node %s with 1 values from CSV record.",
+                                    row["node_id"],
+                                )
 
                     # Geolocation fields.
-                    elif field_definitions[custom_field]['field_type'] == 'geolocation':
-                        target_type = field_definitions[custom_field]['target_type']
+                    elif field_definitions[custom_field]["field_type"] == "geolocation":
+                        target_type = field_definitions[custom_field]["target_type"]
                         # Cardinality is unlimited.
-                        if field_definitions[custom_field]['cardinality'] == -1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        if field_definitions[custom_field]["cardinality"] == -1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_geolocation_string(config, row[custom_field])
+                                subvalues = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
                                 for subvalue in subvalues:
                                     field_values.append(subvalue)
                                 node[custom_field] = field_values
                             else:
-                                field_value = split_geolocation_string(config, row[custom_field])
+                                field_value = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
                                 node[custom_field] = field_value
                         # Cardinality has a limit.
-                        elif field_definitions[custom_field]['cardinality'] > 1:
-                            if config['subdelimiter'] in row[custom_field]:
+                        elif field_definitions[custom_field]["cardinality"] > 1:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = split_geolocation_string(config, row[custom_field])
-                                if len(subvalues) > field_definitions[custom_field]['cardinality']:
-                                    log_field_cardinality_violation(custom_field, row['node_id'], field_definitions[custom_field]['cardinality'])
-                                subvalues = subvalues[:field_definitions[custom_field]['cardinality']]
+                                subvalues = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
+                                if (
+                                    len(subvalues)
+                                    > field_definitions[custom_field]["cardinality"]
+                                ):
+                                    log_field_cardinality_violation(
+                                        custom_field,
+                                        row["node_id"],
+                                        field_definitions[custom_field]["cardinality"],
+                                    )
+                                subvalues = subvalues[
+                                    : field_definitions[custom_field]["cardinality"]
+                                ]
                                 for subvalue in subvalues:
-                                        field_values.append(subvalue)
+                                    field_values.append(subvalue)
                                 node[custom_field] = field_values
                             else:
-                                field_value = split_geolocation_string(config, row[custom_field])
+                                field_value = split_geolocation_string(
+                                    config, row[custom_field]
+                                )
                                 node[custom_field] = field_value
                         # Cardinality is 1.
                         else:
-                            field_values = split_geolocation_string(config, row[custom_field])
+                            field_values = split_geolocation_string(
+                                config, row[custom_field]
+                            )
                             node[custom_field] = [field_values[0]]
                             if len(field_values) > 1:
-                                log_field_cardinality_violation(custom_field, row['node_id'], field_definitions[custom_field]['cardinality'])
+                                log_field_cardinality_violation(
+                                    custom_field,
+                                    row["node_id"],
+                                    field_definitions[custom_field]["cardinality"],
+                                )
 
                     # For non-entity reference and non-typed relation fields (text, etc.).
                     else:
-                        if field_definitions[custom_field]['cardinality'] == 1:
-                            subvalues = row[custom_field].split(config['subdelimiter'])
-                            subvalues[0] = truncate_csv_value(custom_field, row['node_id'], field_definitions[custom_field], subvalues[0])
-                            node[custom_field] = [{'value': subvalues[0]}]
+                        if field_definitions[custom_field]["cardinality"] == 1:
+                            subvalues = row[custom_field].split(config["subdelimiter"])
+                            subvalues[0] = truncate_csv_value(
+                                custom_field,
+                                row["node_id"],
+                                field_definitions[custom_field],
+                                subvalues[0],
+                            )
+                            node[custom_field] = [{"value": subvalues[0]}]
                             if len(subvalues) > 1:
-                                log_field_cardinality_violation(custom_field, row['node_id'], '1')
-                        elif field_definitions[custom_field]['cardinality'] > 1:
+                                log_field_cardinality_violation(
+                                    custom_field, row["node_id"], "1"
+                                )
+                        elif field_definitions[custom_field]["cardinality"] > 1:
                             # Append to existing values.
-                            if config['subdelimiter'] in row[custom_field]:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
-                                if len(subvalues) > field_definitions[custom_field]['cardinality']:
-                                    log_field_cardinality_violation(custom_field, row['node_id'], field_definitions[custom_field]['cardinality'])
-                                subvalues = subvalues[:field_definitions[custom_field]['cardinality']]
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
+                                if (
+                                    len(subvalues)
+                                    > field_definitions[custom_field]["cardinality"]
+                                ):
+                                    log_field_cardinality_violation(
+                                        custom_field,
+                                        row["node_id"],
+                                        field_definitions[custom_field]["cardinality"],
+                                    )
+                                subvalues = subvalues[
+                                    : field_definitions[custom_field]["cardinality"]
+                                ]
                                 for subvalue in subvalues:
-                                    subvalue = truncate_csv_value(custom_field, row['node_id'], field_definitions[custom_field], subvalue)
-                                    field_values.append({'value': subvalue})
-                                    node[custom_field] = node_field_values[custom_field] + field_values
+                                    subvalue = truncate_csv_value(
+                                        custom_field,
+                                        row["node_id"],
+                                        field_definitions[custom_field],
+                                        subvalue,
+                                    )
+                                    field_values.append({"value": subvalue})
+                                    node[custom_field] = (
+                                        node_field_values[custom_field] + field_values
+                                    )
                             else:
-                                row[custom_field] = truncate_csv_value(custom_field, row['node_id'], field_definitions[custom_field], row[custom_field])
-                                node[custom_field] = node_field_values[custom_field] + [{'value': row[custom_field]}]
+                                row[custom_field] = truncate_csv_value(
+                                    custom_field,
+                                    row["node_id"],
+                                    field_definitions[custom_field],
+                                    row[custom_field],
+                                )
+                                node[custom_field] = node_field_values[custom_field] + [
+                                    {"value": row[custom_field]}
+                                ]
                         # Cardinatlity is unlimited.
                         else:
                             # Append to existing values.
-                            if config['subdelimiter'] in row[custom_field]:
+                            if config["subdelimiter"] in row[custom_field]:
                                 field_values = []
-                                subvalues = row[custom_field].split(config['subdelimiter'])
+                                subvalues = row[custom_field].split(
+                                    config["subdelimiter"]
+                                )
                                 for subvalue in subvalues:
-                                    subvalue = truncate_csv_value(custom_field, row['node_id'], field_definitions[custom_field], subvalue)
-                                    field_values.append({'value': subvalue})
-                                    node[custom_field] = node_field_values[custom_field] + field_values
+                                    subvalue = truncate_csv_value(
+                                        custom_field,
+                                        row["node_id"],
+                                        field_definitions[custom_field],
+                                        subvalue,
+                                    )
+                                    field_values.append({"value": subvalue})
+                                    node[custom_field] = (
+                                        node_field_values[custom_field] + field_values
+                                    )
                             else:
-                                row[custom_field] = truncate_csv_value(custom_field, row['node_id'], field_definitions[custom_field], row[custom_field])
-                                node[custom_field] = node_field_values[custom_field] + [{'value': row[custom_field]}]
+                                row[custom_field] = truncate_csv_value(
+                                    custom_field,
+                                    row["node_id"],
+                                    field_definitions[custom_field],
+                                    row[custom_field],
+                                )
+                                node[custom_field] = node_field_values[custom_field] + [
+                                    {"value": row[custom_field]}
+                                ]
 
-                node_endpoint = config['host'] + '/node/' + row['node_id'] + '?_format=json'
-                node_headers = {'Content-Type': 'application/json'}
-                node_response = issue_request(config, 'PATCH', node_endpoint, node_headers, node)
+                node_endpoint = (
+                    config["host"] + "/node/" + row["node_id"] + "?_format=json"
+                )
+                node_headers = {"Content-Type": "application/json"}
+                node_response = issue_request(
+                    config, "PATCH", node_endpoint, node_headers, node
+                )
 
                 if node_response.status_code == 200:
-                    print("Node for " + config['host'] + '/node/' +
-                          row['node_id'] + " updated.")
-                    logging.info("Node for %s updated.", config['host'] + '/node/' + row['node_id'])
+                    print(
+                        "Node for "
+                        + config["host"]
+                        + "/node/"
+                        + row["node_id"]
+                        + " updated."
+                    )
+                    logging.info(
+                        "Node for %s updated.",
+                        config["host"] + "/node/" + row["node_id"],
+                    )
 
 
 def delete():
-    """Delete nodes.
-    """
-    input_csv = os.path.join(config['input_dir'], config['input_csv'])
+    """Delete nodes."""
+    input_csv = os.path.join(config["input_dir"], config["input_csv"])
     if os.path.exists(input_csv):
         with open(input_csv) as csvfile:
             csv_data = csv.DictReader(csvfile)
@@ -567,68 +961,112 @@ def delete():
 
             for row in csv_data:
                 row = clean_csv_values(row)
-                if not ping_node(config, row['node_id']):
-                    print("Node " + row['node_id'] + " not found or not " +
-                          "accessible, skipping delete.")
+                if not ping_node(config, row["node_id"]):
+                    print(
+                        "Node "
+                        + row["node_id"]
+                        + " not found or not "
+                        + "accessible, skipping delete."
+                    )
                     continue
 
                 # Delete the node's media first.
-                if config['delete_media_with_nodes'] is True:
-                    media_endpoint = config['host'] + '/node/' + str(row['node_id']) + '/media/?_format=json'
-                    media_response = issue_request(config, 'GET', media_endpoint)
+                if config["delete_media_with_nodes"] is True:
+                    media_endpoint = (
+                        config["host"]
+                        + "/node/"
+                        + str(row["node_id"])
+                        + "/media/?_format=json"
+                    )
+                    media_response = issue_request(config, "GET", media_endpoint)
                     media_response_body = json.loads(media_response.text)
                     media_messages = []
                     for media in media_response_body:
-                        media_id = media['mid'][0]['value']
-                        media_delete_status_code = remove_media_and_file(config, media_id)
+                        media_id = media["mid"][0]["value"]
+                        media_delete_status_code = remove_media_and_file(
+                            config, media_id
+                        )
                         if media_delete_status_code == 204:
-                            media_messages.append("+ Media " + config['host'] + '/media/' + str(media_id) + " deleted.")
+                            media_messages.append(
+                                "+ Media "
+                                + config["host"]
+                                + "/media/"
+                                + str(media_id)
+                                + " deleted."
+                            )
 
-                node_endpoint = config['host'] + '/node/' + str(row['node_id']) + '?_format=json'
-                node_response = issue_request(config, 'DELETE', node_endpoint)
+                node_endpoint = (
+                    config["host"] + "/node/" + str(row["node_id"]) + "?_format=json"
+                )
+                node_response = issue_request(config, "DELETE", node_endpoint)
                 if node_response.status_code == 204:
-                    print("Node " + config['host'] + '/node/' + str(row['node_id']) + " deleted.")
-                    logging.info("Node %s deleted.", config['host'] + '/node/' + row['node_id'])
-                if config['delete_media_with_nodes'] is True:
+                    print(
+                        "Node "
+                        + config["host"]
+                        + "/node/"
+                        + str(row["node_id"])
+                        + " deleted."
+                    )
+                    logging.info(
+                        "Node %s deleted.", config["host"] + "/node/" + row["node_id"]
+                    )
+                if config["delete_media_with_nodes"] is True:
                     if len(media_messages):
                         for media_message in media_messages:
                             print(media_message)
 
 
 def add_media():
-    """Add media to existing nodes using PUT.
-    """
-    input_csv = os.path.join(config['input_dir'], config['input_csv'])
+    """Add media to existing nodes using PUT."""
+    input_csv = os.path.join(config["input_dir"], config["input_csv"])
     if os.path.exists(input_csv):
         with open(input_csv) as csvfile:
-            csv_data = csv.DictReader(csvfile, delimiter=config['delimiter'])
+            csv_data = csv.DictReader(csvfile, delimiter=config["delimiter"])
             csv_column_headers = csv_data.fieldnames
 
             for row in csv_data:
                 row = clean_csv_values(row)
-                if not ping_node(config, row['node_id']):
-                    print("Node " + row['node_id'] + " not found or not " +
-                          "accessible, skipping adding media.")
+                if not ping_node(config, row["node_id"]):
+                    print(
+                        "Node "
+                        + row["node_id"]
+                        + " not found or not "
+                        + "accessible, skipping adding media."
+                    )
                     continue
 
-                file_path = os.path.join(config['input_dir'], row['file'])
+                file_path = os.path.join(config["input_dir"], row["file"])
                 media_type = set_media_type(file_path, config)
 
-                node_json_url = config['host'] + '/node/' + row['node_id'] + '?_format=json'
-                node_uri = config['host'] + '/node/' + row['node_id']
-                node_response = issue_request(config, 'GET', node_json_url)
+                node_json_url = (
+                    config["host"] + "/node/" + row["node_id"] + "?_format=json"
+                )
+                node_uri = config["host"] + "/node/" + row["node_id"]
+                node_response = issue_request(config, "GET", node_json_url)
                 if node_response.status_code == 200:
-                    media_response_status_code = create_media(config, row['file'], node_uri)
+                    media_response_status_code = create_media(
+                        config, row["file"], node_uri
+                    )
                     allowed_media_response_codes = [201, 204]
                     if media_response_status_code in allowed_media_response_codes:
-                        print(media_type.title() + " media for " + row['file'] + " created and added to " + node_uri)
-                        logging.info("%s media for %s created and added to %s.", media_type.title(), row['file'], node_uri)
+                        print(
+                            media_type.title()
+                            + " media for "
+                            + row["file"]
+                            + " created and added to "
+                            + node_uri
+                        )
+                        logging.info(
+                            "%s media for %s created and added to %s.",
+                            media_type.title(),
+                            row["file"],
+                            node_uri,
+                        )
 
 
 def delete_media():
-    """Delete media.
-    """
-    input_csv = os.path.join(config['input_dir'], config['input_csv'])
+    """Delete media."""
+    input_csv = os.path.join(config["input_dir"], config["input_csv"])
     if os.path.exists(input_csv):
         with open(input_csv) as csvfile:
             csv_data = csv.DictReader(csvfile)
@@ -636,111 +1074,134 @@ def delete_media():
 
             for row in csv_data:
                 row = clean_csv_values(row)
-                media_delete_status_code = remove_media_and_file(config, row['media_id'])
+                media_delete_status_code = remove_media_and_file(
+                    config, row["media_id"]
+                )
                 if media_delete_status_code == 204:
-                    print("Media " + config['host'] + '/media/' + str(row['media_id']) + " and associated file deleted.")
+                    print(
+                        "Media "
+                        + config["host"]
+                        + "/media/"
+                        + str(row["media_id"])
+                        + " and associated file deleted."
+                    )
 
 
 def create_from_files():
     """Create new nodes from files only (no CSV), and add media.
-       These objects will have a title (derived from filename), and a config-defined
-       Islandora model, content type, and status. Media use is derived from config
-       as well.
+    These objects will have a title (derived from filename), and a config-defined
+    Islandora model, content type, and status. Media use is derived from config
+    as well.
     """
     logging.info('"Create from files" task started using config file %s', args.config)
-    file_dir_path = config['input_dir']
+    file_dir_path = config["input_dir"]
     files = os.listdir(file_dir_path)
 
     for file_name in files:
         filename_without_extension = os.path.splitext(file_name)[0]
         if len(filename_without_extension) > 255:
-            message = 'Truncating the filename "' + filename_without_extension + '" since it exceeds Drupal\'s maximum node title length of 255 characters.'
+            message = (
+                'Truncating the filename "'
+                + filename_without_extension
+                + "\" since it exceeds Drupal's maximum node title length of 255 characters."
+            )
             logging.error(message)
             filename_without_extension = filename_without_extension[:255]
 
         islandora_model = set_model_from_extension(file_name, config)
 
         node_json = {
-            'type': [
-                {'target_id': config['content_type'],
-                 'target_type': 'node_type'}
+            "type": [{"target_id": config["content_type"], "target_type": "node_type"}],
+            "title": [{"value": filename_without_extension}],
+            "status": [{"value": config["published"]}],
+            "field_model": [
+                {"target_id": islandora_model, "target_type": "taxonomy_term"}
             ],
-            'title': [
-                {'value': filename_without_extension}
-            ],
-            'status': [
-                {'value': config['published']}
-            ],
-            'field_model': [
-                {'target_id': islandora_model,
-                 'target_type': 'taxonomy_term'}
-            ]
         }
 
-        node_headers = {
-            'Content-Type': 'application/json'
-        }
-        node_endpoint = '/node?_format=json'
-        node_response = issue_request(config, 'POST', node_endpoint, node_headers, node_json, None)
+        node_headers = {"Content-Type": "application/json"}
+        node_endpoint = "/node?_format=json"
+        node_response = issue_request(
+            config, "POST", node_endpoint, node_headers, node_json, None
+        )
         if node_response.status_code == 201:
-            node_uri = node_response.headers['location']
-            print('+ Node for "' + filename_without_extension + '" created at ' + node_uri + '.')
-            logging.info('Node for "%s" created at %s.', filename_without_extension, node_uri)
-            if 'output_csv' in config.keys():
-                write_to_output_csv(config, '', node_response.text)
+            node_uri = node_response.headers["location"]
+            print(
+                '+ Node for "'
+                + filename_without_extension
+                + '" created at '
+                + node_uri
+                + "."
+            )
+            logging.info(
+                'Node for "%s" created at %s.', filename_without_extension, node_uri
+            )
+            if "output_csv" in config.keys():
+                write_to_output_csv(config, "", node_response.text)
 
-            file_path = os.path.join(config['input_dir'], file_name)
+            file_path = os.path.join(config["input_dir"], file_name)
             media_type = set_media_type(file_path, config)
             media_response_status_code = create_media(config, file_name, node_uri)
             allowed_media_response_codes = [201, 204]
             if media_response_status_code in allowed_media_response_codes:
-                print('+ ' + media_type.title() + " media for " + filename_without_extension + " created.")
+                print(
+                    "+ "
+                    + media_type.title()
+                    + " media for "
+                    + filename_without_extension
+                    + " created."
+                )
                 logging.info("Media for %s created.", file_path)
         else:
-            logging.error('Node for "%s" not created, HTTP response code was %s.', os.path.join(config['input_dir'], file_name), node_response.status_code)
+            logging.error(
+                'Node for "%s" not created, HTTP response code was %s.',
+                os.path.join(config["input_dir"], file_name),
+                node_response.status_code,
+            )
 
 
 # Main program logic.
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--config", help="Configuration file to use.")
 parser.add_argument(
-    '--config',
-    help='Configuration file to use.')
-parser.add_argument(
-    '--check',
-    help='Check input data and exit without creating/updating/etc.', action='store_true')
+    "--check",
+    help="Check input data and exit without creating/updating/etc.",
+    action="store_true",
+)
 args = parser.parse_args()
 
 config = set_config_defaults(args)
 logging.basicConfig(
-    filename=config['log_file_path'],
+    filename=config["log_file_path"],
     level=logging.INFO,
-    filemode=config['log_file_mode'],
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%d-%b-%y %H:%M:%S')
+    filemode=config["log_file_mode"],
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%d-%b-%y %H:%M:%S",
+)
 
-if 'check' in config.keys():
-    if config['check']:
-        if config['task'] == 'create_from_files':
+if "check" in config.keys():
+    if config["check"]:
+        if config["task"] == "create_from_files":
             check_input_for_create_from_files(config, args)
         else:
             check_input(config, args)
 
 # Execute bootstrap scripts, if any are configured.
-if 'bootstrap' in config and len(config['bootstrap']) > 0:
-    for command in config['bootstrap']:
+if "bootstrap" in config and len(config["bootstrap"]) > 0:
+    for command in config["bootstrap"]:
         print("Executing bootstrap script " + command)
         output, return_code = execute_bootstrap_script(command, args.config)
 
-if config['task'] == 'create':
+if config["task"] == "create":
     create()
-if config['task'] == 'update':
+if config["task"] == "update":
     update()
-if config['task'] == 'delete':
+if config["task"] == "delete":
     delete()
-if config['task'] == 'add_media':
+if config["task"] == "add_media":
     add_media()
-if config['task'] == 'delete_media':
+if config["task"] == "delete_media":
     delete_media()
-if config['task'] == 'create_from_files':
+if config["task"] == "create_from_files":
     create_from_files()

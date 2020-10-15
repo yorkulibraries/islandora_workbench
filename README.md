@@ -619,9 +619,9 @@ Islandora Workbench writes a log file for all tasks to `workbench.log` in the wo
 
 Bug reports, improvements, feature requests, and PRs welcome. Before you open a pull request, please open an issue.
 
-If you open a PR, please check your code with pycodestyle:
+If you open a PR, please check your code with [`isort`](https://github.com/PyCQA/isort) and [`black`](https://github.com/psf/black):
 
-`pycodestyle --show-source --show-pep8 --ignore=E402 --max-line-length=200 .`
+`isort -l 200 -m 3 --tc *.py workbench && black *.py workbench`
 
 Also provide tests where applicable. Sample tests are available in the `tests` directory. Note that these tests query a live Islandora instance, so you should write them assuming there is one running at localhost:8000. Run tests using the following:
 
