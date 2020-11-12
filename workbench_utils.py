@@ -315,7 +315,7 @@ def get_field_definitions(config):
                 if item['attributes']['entity_type'] == 'media' and 'file_extensions' in item['attributes']['settings']:
                     field_definitions[field_name]['file_extensions'] = item['attributes']['settings']['file_extensions']
                 if item['attributes']['entity_type'] == 'media' and 'bundle' in item['attributes']:
-                    field_definitions[field_name]['media_type'] = item['attributes']['bundle']          
+                    field_definitions[field_name]['media_type'] = item['attributes']['bundle']
                 # If the current field is a taxonomy field, get the referenced taxonomies.
                 if 'config' in item['attributes']['dependencies']:
                     raw_vocabularies = [x for x in item['attributes']['dependencies']['config'] if re.match("^taxonomy.vocabulary.", x)]
@@ -340,7 +340,7 @@ def get_field_definitions(config):
                     if item['attributes']['entity_type'] == 'media' and 'file_extensions' in item['attributes']['settings']:
                         field_definitions[field_name]['file_extensions'] = item['attributes']['settings']['file_extensions']
                     if item['attributes']['entity_type'] == 'media' and 'bundle' in item['attributes']:
-                        field_definitions[field_name]['media_type'] = item['attributes']['bundle']                    
+                        field_definitions[field_name]['media_type'] = item['attributes']['bundle']
                     # If the current field is a taxonomy field, get the referenced taxonomies.
                     if 'config' in item['attributes']['dependencies']:
                         raw_vocabularies = [x for x in item['attributes']['dependencies']['config'] if re.match("^taxonomy.vocabulary.", x)]
@@ -552,6 +552,15 @@ def check_input(config, args):
             csv_column_headers.remove('langcode')
             # Set this so we can validate langcode below.
             langcode_was_present = True
+        if 'uid' in csv_column_headers:
+            csv_column_headers.remove('uid')
+            uid_was_present = True
+        if 'created' in csv_column_headers:
+            csv_column_headers.remove('created')
+            created_was_present = True
+        if 'changed' in csv_column_headers:
+            csv_column_headers.remove('changed')
+            changed_was_present = True
         for csv_column_header in csv_column_headers:
             if csv_column_header not in drupal_fieldnames:
                 logging.error("CSV column header %s does not match any Drupal field names.", csv_column_header)
@@ -774,7 +783,7 @@ def check_input_for_create_from_files(config, args):
     if config['task'] != 'create_from_files':
         message = 'Your task must be "create_from_files".'
         logging.error(message)
-        sys.exit('Error: ' + message)        
+        sys.exit('Error: ' + message)
 
     logging.info('Starting configuration check for "%s" task using config file %s.', config['task'], args.config)
 
@@ -1004,7 +1013,7 @@ def create_media(config, filename, node_uri):
         logging.warning("Media created and linked to node %s, but its URI is not available since its creation returned an HTTP status code of %s", node_uri, media_response.status_code)
     else:
         logging.error('Media not created, PUT request to "%s" returned an HTTP status code of "%s".', media_endpoint, media_response.status_code)
-   
+
     binary_data.close()
 
     return media_response.status_code
@@ -1284,7 +1293,7 @@ def validate_csv_field_cardinality(config, field_definitions, csv_data):
                 if config['task'] == 'create':
                     message = 'CSV field "' + field_name + '" in record with ID ' + row[config['id_field']] + ' contains more values than the number '
                 if config['task'] == 'update':
-                    message = 'CSV field "' + field_name + '" in record with node ID ' + row['node_id'] + ' contains more values than the number '                    
+                    message = 'CSV field "' + field_name + '" in record with node ID ' + row['node_id'] + ' contains more values than the number '
                 if field_cardinalities[field_name] == 1 and len(delimited_field_values) > 1:
                     message_2 = 'allowed for that field (' + str(field_cardinalities[field_name]) + '). Workbench will add only the first value.'
                     print('Warning: ' + message + message_2)
@@ -1320,7 +1329,7 @@ def validate_csv_field_length(config, field_definitions, csv_data):
                         if config['task'] == 'create':
                             message = 'CSV field "' + field_name + '" in record with ID ' + row[config['id_field']] + ' contains a value that is longer (' + str(len(field_value)) + ' characters)'
                         if config['task'] == 'update':
-                            message = 'CSV field "' + field_name + '" in record with node ID ' + row['node_id'] + ' contains a value that is longer (' + str(len(field_value)) + ' characters)'                            
+                            message = 'CSV field "' + field_name + '" in record with node ID ' + row['node_id'] + ' contains a value that is longer (' + str(len(field_value)) + ' characters)'
                         message_2 = ' than allowed for that field (' + str(field_max_lengths[field_name]) + ' characters). Workbench will truncate this value prior to populating Drupal.'
                         print('Warning: ' + message + message_2)
                         logging.warning(message + message_2)
@@ -1429,7 +1438,7 @@ def validate_taxonomy_field_values(config, field_definitions, csv_data):
                                         # Warn if namespaced term name is not in specified vocab.
                                         if tid is False:
                                             new_term_names_in_csv = True
-                                            validate_term_name_length(field_value, str(count), column_name)                                            
+                                            validate_term_name_length(field_value, str(count), column_name)
                                             message = 'CSV field "' + column_name + '" in row ' + str(count) + ' contains a term ("' + field_value.strip() + '") that is '
                                             message_2 = 'not in the referenced vocabulary ("' + this_fields_vocabularies[0] + '"). That term will be created.'
                                             logging.warning(message + message_2)

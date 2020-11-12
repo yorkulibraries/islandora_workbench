@@ -42,6 +42,9 @@ def create():
                     'title': [
                         {'value': row['title']}
                     ],
+                    'uid': [
+                        {'value': row['uid']}
+                    ],
                     'status': [
                         {'value': config['published']}
                     ]
@@ -71,6 +74,15 @@ def create():
 
                     # 'langcode' is a core Drupal field, but is not considered a "base field".
                     if custom_field == 'langcode':
+                        continue
+
+                    if custom_field == 'uid':
+                        continue
+
+                    if custom_field == 'changed':
+                        continue
+
+                    if custom_field == 'created':
                         continue
 
                     # Execute field preprocessor scripts, if any are configured. Note that these scripts
